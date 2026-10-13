@@ -445,6 +445,73 @@ export function drawAtlas(): HTMLCanvasElement {
     if (Math.abs(u - 0.5) < 0.3) return mul([232, 230, 220], 0.92 + n * 0.08);
     return asphalt(u, v, n);
   });
+  // ---------- Linefield cyberpunk tiles (36..58) ----------
+  // sci-fi panel: flat colour, recessed seams, bevel highlight, subtle grime
+  const panel = (base: number[], seams = 2) => (u: number, v: number, n: number) => {
+    const fu = (u * seams) % 1, fv = (v * seams) % 1;
+    const g = N(u, v, 4, 3);
+    let col = mul(base, 0.9 + g * 0.18 + (n - 0.5) * 0.05);
+    if (fu < 0.04 || fv < 0.04) col = mul(base, 0.55);
+    else if (fu < 0.08 || fv < 0.08) col = mul(base, 1.18);
+    return col;
+  };
+  const clad = (base: number[]) => (u: number, v: number, n: number) => {
+    const row = Math.floor(v * 4), fv = v * 4 - row;
+    let col = mul(base, 0.88 + N(u, v, 8, 3) * 0.22 + (n - 0.5) * 0.06);
+    if (fv > 0.92) col = mul(base, 0.6);
+    return col;
+  };
+  const glassT = (frame: number[], pane: number[], glow: number) => (u: number, v: number, n: number) => {
+    if (Math.min(u, v, 1 - u, 1 - v) < 0.07) return mul(frame, 0.95 + n * 0.1);
+    let col = mix(pane, mul(pane, 0.55), v);
+    if (Math.abs(u - v - 0.1) < 0.06) col = mix(col, [240, 250, 255], 0.3);
+    if (glow && Math.abs(((v * 4) % 1) - 0.5) < 0.12) col = mix(col, [255, 255, 255], glow);
+    return mul(col, 0.95 + (n - 0.5) * 0.06);
+  };
+  const lamp = (core: number[], rim: number[]) => (u: number, v: number, n: number) => {
+    const e = Math.min(u, v, 1 - u, 1 - v);
+    if (e < 0.08) return mul(rim, 0.9 + n * 0.15);
+    const d = Math.hypot(u - 0.5, v - 0.5);
+    return mix([255, 255, 255], core, d * 1.6 + N(u, v, 8, 2) * 0.2);
+  };
+  put(36, panel([34, 36, 44]));
+  put(37, panel([112, 116, 124]));
+  put(38, panel([214, 216, 222]));
+  put(39, panel([30, 140, 150]));
+  put(40, (u, v, n) => {
+    const fu = (u * 4) % 1, fv = (v * 4) % 1;
+    const c = mix([22, 70, 64], [44, 104, 92], N(u, v, 8, 3));
+    return fu < 0.06 || fv < 0.06 ? mul(c, 0.5) : mul(c, 0.95 + (n - 0.5) * 0.1);
+  });
+  put(41, clad([58, 92, 96]));
+  put(42, clad([150, 62, 50]));
+  put(43, clad([170, 92, 44]));
+  put(44, clad([190, 140, 46]));
+  put(45, clad([84, 110, 52]));
+  put(46, clad([60, 100, 170]));
+  put(47, clad([120, 64, 130]));
+  put(48, glassT([20, 22, 28], [26, 32, 48], 0));
+  put(49, glassT([20, 40, 48], [40, 220, 240], 0.35));
+  put(50, glassT([40, 20, 40], [240, 60, 200], 0.35));
+  put(51, px((x, y) => (x % 4 === 1 || y === 0 || y === 15 ? [70, 74, 80, 255] : [0, 0, 0, 0])));
+  put(52, (u, v, n) => {
+    const e = Math.min(u, v, 1 - u, 1 - v);
+    if (e < 0.06) return mul([120, 200, 210], 0.9 + n * 0.1);
+    const s = Math.abs(Math.sin(u * Math.PI * 4)) * Math.abs(Math.sin(v * Math.PI * 4));
+    return mix([150, 220, 225], [235, 255, 255], s + N(u, v, 8, 2) * 0.3);
+  });
+  put(53, lamp([255, 190, 80], [160, 110, 50]));
+  put(54, lamp([120, 240, 255], [60, 70, 90]));
+  put(55, lamp([255, 80, 220], [70, 40, 80]));
+  put(56, (u, v, n) => {
+    const fu = (u * 2) % 1;
+    const c = mix([82, 86, 94], [130, 136, 146], M(u * 0.3, v * 2, 16, 2));
+    if (fu < 0.03) return mul(c, 0.55);
+    if (Math.hypot(((u * 2) % 1) - 0.12, ((v * 2) % 1) - 0.12) < 0.05) return mul(c, 1.3);
+    return mul(c, 0.95 + (n - 0.5) * 0.08);
+  });
+  put(57, glassT([48, 36, 16], [255, 190, 60], 0.35));
+  put(58, clad([96, 66, 46]));
   ctx.putImageData(img, 0, 0);
   return c;
 }
