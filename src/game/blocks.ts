@@ -33,6 +33,30 @@ export const B = {
   OFFICE_WINDOW: 29,
   STEEL: 30,
   ROAD_LINE: 31,
+  // ---- Linefield cyberpunk palette ----
+  PANEL_DARK: 32,
+  PANEL_GRAY: 33,
+  PANEL_WHITE: 34,
+  PANEL_CYAN: 35,
+  PRISMARINE_DARK: 36,
+  TERRA_TEAL: 37,
+  TERRA_RED: 38,
+  TERRA_ORANGE: 39,
+  TERRA_YELLOW: 40,
+  TERRA_GREEN: 41,
+  TERRA_BLUE: 42,
+  TERRA_PURPLE: 43,
+  TINT_GLASS: 44,
+  GLASS_CYAN: 45,
+  GLASS_MAGENTA: 46,
+  IRON_BARS: 47,
+  SEA_LANTERN: 48,
+  GLOWSTONE: 49,
+  NEON_ROD: 50,
+  NEON_MAGENTA: 51,
+  METAL: 52,
+  GLASS_GREEN: 53,
+  TERRA_BROWN: 54,
 } as const;
 
 export type Tool = "pickaxe" | "axe" | "shovel";
@@ -79,6 +103,21 @@ export const BLOCKS: Record<number, BlockDef> = {
   [B.STEEL]: { name: "Steel Panel", hardness: 6, tool: "pickaxe", tiles: [34, 34, 34], drop: B.STEEL },
   [B.ROAD_LINE]: { name: "Road Marking", hardness: 3, tool: "pickaxe", tiles: [35, 35, 35], drop: B.ASPHALT },
 };
+// Linefield cyberpunk blocks: tile index = id + 4 (tiles 36..58)
+const CYBER: [number, string, number, Tool | null, boolean?][] = [
+  [B.PANEL_DARK, "Dark Panel", 4, "pickaxe"], [B.PANEL_GRAY, "Grey Panel", 4, "pickaxe"], [B.PANEL_WHITE, "White Panel", 4, "pickaxe"],
+  [B.PANEL_CYAN, "Cyan Panel", 4, "pickaxe"], [B.PRISMARINE_DARK, "Dark Prismarine", 4, "pickaxe"], [B.TERRA_TEAL, "Teal Cladding", 3, "pickaxe"],
+  [B.TERRA_RED, "Red Cladding", 3, "pickaxe"], [B.TERRA_ORANGE, "Orange Cladding", 3, "pickaxe"], [B.TERRA_YELLOW, "Yellow Cladding", 3, "pickaxe"],
+  [B.TERRA_GREEN, "Green Cladding", 3, "pickaxe"], [B.TERRA_BLUE, "Blue Cladding", 3, "pickaxe"], [B.TERRA_PURPLE, "Violet Cladding", 3, "pickaxe"],
+  [B.TINT_GLASS, "Tinted Glass", 0.4, null], [B.GLASS_CYAN, "Cyan Neon Glass", 0.4, null], [B.GLASS_MAGENTA, "Magenta Neon Glass", 0.4, null],
+  [B.IRON_BARS, "Iron Bars", 3, "pickaxe", true], [B.SEA_LANTERN, "Sea Lantern", 0.5, null], [B.GLOWSTONE, "Glowstone", 0.5, null],
+  [B.NEON_ROD, "Neon Strip", 0.3, null], [B.NEON_MAGENTA, "Magenta Neon", 0.3, null], [B.METAL, "Metal Plate", 5, "pickaxe"],
+  [B.GLASS_GREEN, "Amber Neon Glass", 0.4, null], [B.TERRA_BROWN, "Brown Cladding", 3, "pickaxe"],
+];
+for (const [id, name, hardness, tool, transparent] of CYBER)
+  BLOCKS[id] = { name, hardness, tool, tiles: [id + 4, id + 4, id + 4], drop: id, transparent };
+const EMISSIVE = new Set<number>([B.LANTERN, B.SEA_LANTERN, B.GLOWSTONE, B.NEON_ROD, B.NEON_MAGENTA, B.GLASS_CYAN, B.GLASS_MAGENTA, B.GLASS_GREEN]);
+export const isEmissive = (id: number) => EMISSIVE.has(id);
 
 export type Item =
   | { kind: "tool"; tool: Tool; name: string; tile: number; damage: number }
@@ -105,7 +144,7 @@ export const isNatural = (id: number) => id === B.GRASS || id === B.DIRT || id =
 
 
 // ---------- Procedural texture atlas (4x4 tiles, 16px each) ----------
-export const ATLAS_COLS = 6;
+export const ATLAS_COLS = 8;
 
 function rng(seed: number) {
   let s = seed >>> 0;
