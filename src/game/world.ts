@@ -4,10 +4,11 @@ import * as THREE from "three";
 import { CASTLE_DATA, CASTLE_SIZE } from "./castleData";
 import { buildTown, townAt, T_R, T_Y, AIRV } from "./town";
 import { buildCity, cityAt, C_R, C_Y, CAIR } from "./city";
-import { B, BLOCKS, ATLAS_COLS, isTransparent, isPassable, isNatural, isPlant } from "./blocks";
+import { B, BLOCKS, ATLAS_COLS, isTransparent, isPassable, isNatural, isPlant, isEmissive } from "./blocks";
+import { lfColumn, onLinefieldTile, LF_X0, LF_Z0, LF_SIZE, LF_TS, LF_GROUND, LF_CX, LF_CZ } from "./linefield";
 
 export const CH = 16;
-export const H = 64;
+export const H = 400; // tall enough for Linefield's tallest towers (build limit at y=395)
 export const WATER_LEVEL = 15;
 // kingdom: centred on the citadel, 200x200 inside a 3-thick wall
 export const K_CX = 24 + 14, K_CZ = 0, K_HALF = 100, WALL_T = 3;
@@ -16,6 +17,7 @@ const K_FADE = 28; // blend back into natural terrain
 // modern metropolis, far east of the kingdom
 export const M_CX = K_CX + 360, M_CZ = 40;
 const M_OUT = 114, M_FADE = 36; // city radius (C_R=110) + apron
+const LF_HALF = LF_SIZE / 2, LF_OUT = LF_HALF + 6, LF_FADE = 40;
 
 export function hash2(x: number, z: number, seed: number) {
   let h = Math.imul(x, 374761393) + Math.imul(z, 668265263) + Math.imul(seed, 982451653);
@@ -50,7 +52,38 @@ export type Edits = Record<string, Record<number, number>>;
 export class World {
   chunks = new Map<string, Uint8Array>();
   versions = new Map<string, number>();
-  constructor(public seed: number, public edits: Edits = {}) {}
+  tops = new Map<string, number>();
+  constructor(public seed: number, public edits: Edits = {}) {
+    onLinefieldTile((tx, tz) => {
+      const c0x = Math.floor((LF_X0 + tx * LF_TS) / CH), c0z = Math.floor((LF_Z0 + tz * LF_TS) / CH);
+      for (let cz = c0z; cz < c0z + LF_TS / CH; cz++) for (let cx = c0x; cx < c0x + LF_TS / CH; cx++) {
+        const k = chunkKey(cx, cz), c = this.chunks.get(k);
+        if (!c) continue;
+        this.stampLinefield(cx, cz, c);
+        const e = this.edits[k];
+        if (e) for (const i in e) c[+i] = e[i];
+        this.tops.set(k, topOf(c));
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) this.bump(cx + dx, cz + dz);
+      }
+    });
+  }
+
+  // ---- Linefield cyberpunk downtown (1:1 import, streamed tiles) ----
+  lfDist(x: number, z: number) { return Math.max(Math.abs(x - LF_CX + 0.5), Math.abs(z - LF_CZ + 0.5)); }
+  private stampLinefield(cx: number, cz: number, c: Uint8Array) {
+    const x0 = cx * CH, z0 = cz * CH;
+    if (x0 + CH <= LF_X0 || x0 >= LF_X0 + LF_SIZE || z0 + CH <= LF_Z0 || z0 >= LF_Z0 + LF_SIZE) return;
+    for (let lz = 0; lz < CH; lz++)
+      for (let lx = 0; lx < CH; lx++) {
+        const u = x0 + lx - LF_X0, v = z0 + lz - LF_Z0;
+        if (u < 0 || v < 0 || u >= LF_SIZE || v >= LF_SIZE) continue;
+        c[idx(lx, 0, lz)] = B.BEDROCK;
+        for (let y = 1; y < H; y++) c[idx(lx, y, lz)] = y < LF_GROUND - 4 ? B.STONE : 0;
+        const ok = lfColumn(u, v, (y, id) => { if (y < H) c[idx(lx, y, lz)] = id; });
+        if (!ok) for (let y = LF_GROUND - 4; y <= LF_GROUND; y++) c[idx(lx, y, lz)] = B.PANEL_DARK; // placeholder street until the tile streams in
+      }
+  }
+
 
   // ---- Classic Stone Castle (CastleShift mod pieces) ----
   private castleGrid: Uint8Array | null = null;
@@ -202,6 +235,12 @@ export class World {
         const s = t * t * (3 - 2 * t);
         v = Math.round(v + (G - v) * s);
       }
+      const ld = this.lfDist(x, z);
+      if (ld < LF_OUT + LF_FADE) {
+        const t = ld <= LF_OUT ? 1 : 1 - (ld - LF_OUT) / LF_FADE;
+        const s = t * t * (3 - 2 * t);
+        v = Math.round(v + (LF_GROUND - v) * s);
+      }
       if (this.hcache.size > 400000) this.hcache.clear();
       this.hcache.set(key, v);
     }
@@ -295,6 +334,7 @@ export class World {
     if (!c) {
       c = this.generate(cx, cz);
       this.chunks.set(k, c);
+      this.tops.set(k, topOf(c));
     }
     return c;
   }
@@ -470,6 +510,7 @@ export class World {
     this.stampKingdomWall(cx, cz, c);
     this.stampTown(cx, cz, c);
     this.stampCity(cx, cz, c);
+    this.stampLinefield(cx, cz, c);
     const e = this.edits[chunkKey(cx, cz)];
     if (e) for (const k in e) c[+k] = e[k];
     return c;
@@ -489,6 +530,7 @@ export class World {
     const k = chunkKey(cx, cz);
     const i = idx(lx, y, lz);
     this.getChunk(cx, cz)[i] = id;
+    if (id && y >= (this.tops.get(k) ?? 0)) this.tops.set(k, y + 1);
     (this.edits[k] ??= {})[i] = id;
     this.bump(cx, cz);
     if (lx === 0) this.bump(cx - 1, cz);
@@ -497,6 +539,8 @@ export class World {
     if (lz === CH - 1) this.bump(cx, cz + 1);
   }
 
+  /** one above the highest non-air block in a chunk */
+  top(cx: number, cz: number) { this.getChunk(cx, cz); return this.tops.get(chunkKey(cx, cz)) ?? H; }
   bump(cx: number, cz: number) {
     const k = chunkKey(cx, cz);
     this.versions.set(k, (this.versions.get(k) ?? 0) + 1);
@@ -523,6 +567,12 @@ export class World {
       }
     return [x, this.surface(x, z), z];
   }
+}
+
+function topOf(c: Uint8Array) {
+  const L = CH * CH;
+  for (let y = H - 1; y > 0; y--) { const o = y * L; for (let i = 0; i < L; i++) if (c[o + i]) return y + 1; }
+  return 1;
 }
 
 // ---------- Meshing ----------
@@ -587,33 +637,35 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
   // block light: flood-fill from lanterns through open cells (radius LMAX)
   const R = 8, SX = CH + 2 * R, LMAX = 8;
   const nb: Uint8Array[] = [];
-  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) nb.push(world.getChunk(cx + dx, cz + dz));
+  let YT = 2;
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { nb.push(world.getChunk(cx + dx, cz + dz)); YT = Math.max(YT, world.top(cx + dx, cz + dz) + 1); }
+  YT = Math.min(H, YT);
   const cellId = (rx: number, y: number, rz: number) => {
     const lx = rx - R, lz = rz - R;
     const ax = lx < 0 ? -1 : lx >= CH ? 1 : 0, az = lz < 0 ? -1 : lz >= CH ? 1 : 0;
     return nb[(az + 1) * 3 + ax + 1][idx(lx - ax * CH, y, lz - az * CH)];
   };
-  const light = new Uint8Array(SX * SX * H);
-  const q = new Int32Array(SX * SX * H);
+  const light = new Uint8Array(SX * SX * YT);
+  const q = new Int32Array(SX * SX * YT);
   let qh = 0, qt = 0;
-  for (let y = 1; y < H; y++) for (let rz = 0; rz < SX; rz++) for (let rx = 0; rx < SX; rx++)
-    if (cellId(rx, y, rz) === B.LANTERN) { const i = (y * SX + rz) * SX + rx; light[i] = LMAX; q[qt++] = i; }
+  for (let y = 1; y < YT; y++) for (let rz = 0; rz < SX; rz++) for (let rx = 0; rx < SX; rx++)
+    if (isEmissive(cellId(rx, y, rz))) { const i = (y * SX + rz) * SX + rx; light[i] = LMAX; q[qt++] = i; }
   while (qh < qt) {
     const i = q[qh++], l = light[i];
     if (l <= 1) continue;
     const rx = i % SX, rz = ((i / SX) | 0) % SX, y = (i / (SX * SX)) | 0;
     for (const [dx, dy, dz] of LDIRS) {
       const nx = rx + dx, ny = y + dy, nz = rz + dz;
-      if (nx < 0 || nz < 0 || nx >= SX || nz >= SX || ny < 1 || ny >= H) continue;
+      if (nx < 0 || nz < 0 || nx >= SX || nz >= SX || ny < 1 || ny >= YT) continue;
       const j = (ny * SX + nz) * SX + nx;
       if (light[j] >= l - 1) continue;
       const nid = cellId(nx, ny, nz);
-      if (!isTransparent(nid) || nid === B.LANTERN) continue;
+      if (!isTransparent(nid) || isEmissive(nid)) continue;
       light[j] = l - 1; q[qt++] = j;
     }
   }
   const blkAt = (lx: number, y: number, lz: number) => {
-    if (y < 0 || y >= H) return 0;
+    if (y < 0 || y >= YT) return 0;
     const v = light[(y * SX + lz + R) * SX + lx + R];
     return v ? Math.pow(v / LMAX, 1.5) : 0;
   };
@@ -623,7 +675,8 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
     u = Math.min(1 - eps, Math.max(eps, u)); v = Math.min(1 - eps, Math.max(eps, v));
     uv.push((tc + u) / ATLAS_COLS, 1 - (tr + 1 - v) / ATLAS_COLS);
   };
-  for (let y = 0; y < H; y++)
+  const ownTop = world.top(cx, cz);
+  for (let y = 0; y < ownTop; y++)
     for (let z = 0; z < CH; z++)
       for (let x = 0; x < CH; x++) {
         const id = chunk[idx(x, y, z)];
@@ -711,7 +764,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
             // foliage scatters light through itself, so its undersides never go pitch black
             const l = isWater ? 1 : id === B.LEAVES ? 0.9 + 0.1 * F.s * ao[k++] + 0.25 : (0.82 + 0.18 * F.s) * ao[k++];
             col.push(l, l, l);
-            blk.push(id === B.LANTERN ? 1.8 : fb);
+            blk.push(isEmissive(id) ? 1.8 : fb);
           }
           const out = isWater ? wind : ind;
           // flip quad diagonal to avoid anisotropic AO artifacts
